@@ -1,67 +1,63 @@
-name: online-build
+name: build
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        build_type: [Release]
+        enable_ui: [on]
+        include:
+          - os: windows-latest
+            build_type: Release
+            enable_ui: on
     steps:
-      - name: 拉取代码及子模块
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: 安装构建工具
-        uses: seanmiddleditch/gha-setup-ninja@master
-
-      - name: 配置MSVC编译环境
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: 下载官方Skia库（带完整依赖）
-        shell: bash
-        run: |
-          # 使用Aseprite官方指定的Skia版本（确保兼容性）
-          SKIA_VERSION="m102-aseprite-r4"
-          SKIA_URL="https://github.com/aseprite/skia/releases/download/${SKIA_VERSION}/skia-windows-x64-release.zip"
-          
-          # 在线环境增加下载重试机制，避免网络波动
-          curl -L --retry 5 --retry-delay 10 "$SKIA_URL" --output skia.zip
-          
-          # 显式指定7-Zip路径并解压到固定目录
-          "C:/Program Files/7-Zip/7z.exe" x skia.zip -o"${GITHUB_WORKSPACE}/skia" > null
-          
-          # 验证关键文件是否存在（在线环境提前排查缺失）
-          if [ ! -f "${GITHUB_WORKSPACE}/skia/third_party/externals/icu/flutter/icudtl.dat" ]; then
-            echo "错误：Skia库中缺失icudtl.dat文件"
-            exit 1
-          fi
-
-      - name: 生成CMake构建文件（在线环境适配）
-        shell: bash
-        run: |
-          # 在线环境必须使用绝对路径（避免工作目录变动导致的问题）
-          SKIA_DIR="${GITHUB_WORKSPACE}/skia"
-          SKIA_LIB_DIR="${SKIA_DIR}/out/Release-x64"
-          
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DENABLE_CCACHE=off \
-            -DLAF_BACKEND=skia \
-            -DSKIA_DIR="${SKIA_DIR}" \
-            -DSKIA_LIBRARY_DIR="${SKIA_LIB_DIR}" \
-            -DSKIA_LIBRARY="${SKIA_LIB_DIR}/skia.lib" \
-            -DICU_DAT_FILE="${SKIA_DIR}/third_party/externals/icu/flutter/icudtl.dat"
-
-      - name: 在线编译
-        shell: bash
-        run: |
-          cd build
-          # 在线环境编译输出详细日志，便于排查错误
-          ninja -v
-
-      - name: 上传编译产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: aseprite-windows-release
-          path: |
-            ${{ github.workspace }}/build/bin/aseprite.exe
-            ${{ github.workspace }}/build/bin/data/
-          if-no-files-found: error  # 在线编译必须确保产物存在
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1
+      if: runner.os == 'Linux'
+      with:
+        key: ${{ matrix.os }}-${{ matrix.enable_ui }}
+    - uses: seanmiddleditch/gha-setup-ninja@master
+    - uses: ilammy/msvc-dev-cmd@v1
+      if: runner.os == 'Windows'
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]] ; then
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libx11-dev libxcursor-dev libxi-dev
+        fi
+    - name: Generating Makefiles
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Windows" ]] ; then
+          export enable_ccache=off
+        else
+          export enable_ccache=on
+        fi
+        curl -L https://github.com/blueloveTH/aseprite/releases/download/v0.01/skia.zip --output skia.zip
+        7z x skia.zip
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          -DENABLE_UI=${{ matrix.enable_ui }} \
+          -DENABLE_CCACHE=$enable_ccache \
+          -DLAF_BACKEND=skia \
+          -DSKIA_DIR=./skia \
+          -DSKIA_LIBRARY_DIR=./skia/out/Release-x64 \
+          -DSKIA_LIBRARY=./skia/out/Release-x64/skia.lib
+    - name: Compiling
+      shell: bash
+      run: |
+        cd build && ninja
+    - uses: actions/upload-artifact@v4
+      with:
+        name: aseprite
+        path: |
+          D:/a/aseprite/aseprite/build/bin/data
+          D:/a/aseprite/aseprite/build/bin/aseprite.exe
