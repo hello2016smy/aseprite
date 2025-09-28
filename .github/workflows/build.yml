@@ -14,17 +14,15 @@ jobs:
             build_type: Release
             enable_ui: on
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4  # 升级到最新版checkout
       with:
-        submodules: 'recursive'
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1
-      if: runner.os == 'Linux'
-      with:
-        key: ${{ matrix.os }}-${{ matrix.enable_ui }}
-    - uses: seanmiddleditch/gha-setup-ninja@master
-    - uses: ilammy/msvc-dev-cmd@v1
+        submodules: recursive  # 递归拉取子模块
+    
+    - uses: seanmiddleditch/gha-setup-ninja@master  # 安装Ninja构建工具
+    
+    - uses: ilammy/msvc-dev-cmd@v1  # 配置Windows MSVC环境
       if: runner.os == 'Windows'
+    
     - name: Install Dependencies
       shell: bash
       run: |
@@ -33,16 +31,18 @@ jobs:
           sudo apt-get install -y \
             libx11-dev libxcursor-dev libxi-dev
         fi
+    
     - name: Generating Makefiles
       shell: bash
       run: |
-        if [[ "${{ runner.os }}" == "Windows" ]] ; then
-          export enable_ccache=off
-        else
-          export enable_ccache=on
-        fi
+        # 仅Windows环境，禁用ccache
+        export enable_ccache=off
+        
+        # 下载并解压Skia库
         curl -L https://github.com/blueloveTH/aseprite/releases/download/v0.01/skia.zip --output skia.zip
         7z x skia.zip
+        
+        # CMake配置
         cmake -S . -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
           -DENABLE_UI=${{ matrix.enable_ui }} \
@@ -51,13 +51,18 @@ jobs:
           -DSKIA_DIR=./skia \
           -DSKIA_LIBRARY_DIR=./skia/out/Release-x64 \
           -DSKIA_LIBRARY=./skia/out/Release-x64/skia.lib
+    
     - name: Compiling
       shell: bash
       run: |
-        cd build && ninja
-    - uses: actions/upload-artifact@v3
+        cd build && ninja  # 执行编译
+    
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4  # 使用最新版artifact上传工具
       with:
-        name: aseprite
+        name: aseprite-windows-${{ matrix.build_type }}
         path: |
-          D:/a/aseprite/aseprite/build/bin/data
-          D:/a/aseprite/aseprite/build/bin/aseprite.exe
+          ./build/bin/data/
+          ./build/bin/aseprite.exe
+        if-no-files-found: warn  # 无文件时仅警告
+        retention-days: 7  #  artifacts保留7天
